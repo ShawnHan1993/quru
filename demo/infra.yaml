@@ -1,0 +1,29 @@
+version: "3.7"
+services:
+
+    rabbitmq:
+        image: rabbitmq:3.8.9-management
+        ports:
+            - 5672:5672
+            - 15672:15672
+        networks:
+            - quru-network
+        environment:
+            RABBITMQ_DEFAULT_USER: admin
+            RABBITMQ_DEFAULT_PASS: pswd
+        logging:
+            driver: json-file
+
+    redis:
+        image: redis:6.0.6
+        ports:
+            - 6379:6379
+        networks:
+            - quru-network
+        logging:
+            driver: json-file
+
+networks:
+    quru-network:
+        external: true
+        name: quru-network

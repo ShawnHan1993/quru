@@ -1,16 +1,14 @@
 # standard python package
 import json
 
-from mongoengine import Document
 import aiozipkin as az
 
 # self-defined package
-from .types import (MsgObj, RedisObj, TraceContext, TransacException,
-                    TransmittableException)
-from .raft_log import RaftLog, RaftCommand, RaftQuorumLog
+from .types import (InternalTransmittable, QuruJSONEncoder, RedisObj,
+                    TraceContext, quru_load_hook)
 
 
-class _PacketBase(MsgObj):
+class _PacketBase(InternalTransmittable):
     def __init__(self,
                  header: dict = None,
                  body: dict = None):
@@ -164,89 +162,19 @@ class RaftPacket(_PacketBase):
         self.header['mode'] = value
 
 
-class _TypeHelper():
-    RedisObj = RedisObj
-    TraceContext = TraceContext
-    TransmittableException = TransmittableException
-    TransacException = TransacException
-    _PacketBase = _PacketBase
-    RPCPacket = RPCPacket
-    TracedPacket = TracedPacket
-    WorkerPacket = WorkerPacket
-    RaftPacket = RaftPacket
-    RaftLog = RaftLog
-    RaftCommand = RaftCommand
-    RaftQuorumLog = RaftQuorumLog
-
-
-class _MsgJSONEncoder(json.JSONEncoder):
-    '''Encoding class to serialize Python object
-    into dict.
-    '''
-    def default(self, obj):
-        '''
-        Args:
-            obj (any): Any objects that exposes a serialize
-            method to serialize itself into json format.
-        '''
-        if isinstance(obj, set):
-            new_obj = {
-                'MARKER::CLASS': "set",
-                'MARKER::DATA': list(obj)
-            }
-            return new_obj
-        if isinstance(obj, _PacketBase):
-            obj['MARKER::CLASS'] = obj.__class__.__name__
-            return obj.serialize()
-        if isinstance(obj, (MsgObj,
-                            Document
-                            )):
-            new_obj = {
-                'MARKER::CLASS': obj.__class__.__name__,
-                'MARKER::DATA': obj.serialize()
-            }
-            return new_obj
-        try:
-            return json.JSONEncoder.default(self, obj)
-        except Exception as e:
-            print(e)
-            pass
-
-
-def _load_hook(item):
-    '''Used by packet when loading json to recover
-    the serialized Python object.
-    Args:
-        item (dict): the dict encoding a Python object.
-    '''
-    if "MARKER::CLASS" in item:
-        if "header" in item and "payload" in item:
-            obj = getattr(_TypeHelper, item['MARKER::CLASS']).deserialize(item)
-            return obj
-        if item["MARKER::CLASS"] == "set":
-            return set(item["MARKER::DATA"])
-        obj = getattr(_TypeHelper, item['MARKER::CLASS'])\
-            .deserialize(item['MARKER::DATA'])
-        if item["MARKER::CLASS"] == "RedisObj":
-            return json.loads(obj, object_hook=_load_hook)
-        else:
-            return obj
-    return item
-
-
 class Packet(_PacketBase):
     '''A packet is an object that abstract the transmitted message.
     '''
 
     def from_bytes(self, msg: bytes):
         # msg = str(msg, encoding="utf-8")
-        self._body = json.loads(msg, object_hook=_load_hook)
+        self._body = json.loads(msg, object_hook=quru_load_hook)
 
     def wrap(self) -> bytes:
         '''Return the serialized data in bytes so that it
         could be transported by MQ broker.
         '''
-        msg_str = json.dumps(self._body, cls=_MsgJSONEncoder)
+        msg_str = json.dumps(self._body, cls=QuruJSONEncoder)
         if len(msg_str) > 2000:
-            msg_str = json.dumps(RedisObj(msg_str), cls=_MsgJSONEncoder)
+            msg_str = json.dumps(RedisObj(msg_str), cls=QuruJSONEncoder)
         return bytes(msg_str, encoding="utf-8")

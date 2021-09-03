@@ -1,7 +1,7 @@
-from .types import RaftLogABC, MsgObj
+from .types import RaftLogABC, InternalTransmittable
 
 
-class RaftCommand(MsgObj):
+class RaftCommand(InternalTransmittable):
     def __init__(self, body=None):
         if body is None:
             body = []
@@ -28,7 +28,7 @@ class RaftCommand(MsgObj):
             yield cmd
 
 
-class RaftLog(RaftLogABC, MsgObj):
+class RaftLog(RaftLogABC, InternalTransmittable):
     def __init__(self, body=None):
         if body is None:
             body = {}

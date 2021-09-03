@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="quru",
-    version="0.0.1",
+    version="0.0.2",
     author="Shen Han",
     description="A Python workflow framework",
     long_description=long_description,
@@ -16,7 +16,6 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    download_url = "https://github.com/ShawnHan1993/quru/archive/refs/tags/0.0.1.tar.gz",
     url = "https://github.com/ShawnHan1993/quru",
     python_requires='>=3.7',
     install_requires=[

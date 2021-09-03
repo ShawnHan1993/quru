@@ -1,13 +1,36 @@
 import abc
 import hashlib
+import json
 
 import aiozipkin as az
 
 from ..quru_logger import logger
 from ..redis_clt import redis_client
 
+_type_pool = {}
 
-class MsgObj(object):
+
+class TransmittableABC(abc.ABCMeta):
+    def __init__(cls, name, bases, clsdict):
+        if cls.__name__ != "Transmittable" and issubclass(cls, Transmittable):
+            _type_pool[cls.__name__] = cls
+        pass
+
+
+class Transmittable(metaclass=TransmittableABC):
+    '''Instance of class whose super class is this one would be able to
+    be transmitted bewteen quru services. 
+    '''
+    @abc.abstractclassmethod
+    def deserialize(cls):
+        pass
+
+    @abc.abstractmethod
+    def serialize(self):
+        pass
+
+
+class InternalTransmittable(Transmittable):
     def __init__(self, body):
         self._body = body
 
@@ -19,7 +42,7 @@ class MsgObj(object):
         return cls(body=body)
 
 
-class RedisObj(MsgObj):
+class RedisObj(InternalTransmittable):
     def __init__(self, v):
         if isinstance(v, str):
             key = hashlib.sha256(bytes(v, encoding="utf-8")).hexdigest()
@@ -42,8 +65,8 @@ class RedisObj(MsgObj):
             raise ValueError("Only accept list or str type")
         super(RedisObj, self).__init__(body)
 
-    @staticmethod
-    def deserialize(data):
+    @classmethod
+    def deserialize(cls, data):
         key = data['key']
         value = redis_client.get(key)
         if value is None:
@@ -57,31 +80,30 @@ class RedisObj(MsgObj):
         return value
 
 
-class TraceContext(MsgObj):
+class TraceContext(InternalTransmittable):
     def serialize(self):
         return self._body.make_headers()
 
-    @staticmethod
-    def deserialize(data):
-        return TraceContext(az.make_context(data))
+    @classmethod
+    def deserialize(cls, data):
+        return cls(az.make_context(data))
 
 
-class TransmittableException(Exception, MsgObj):
+class TransmittableException(Exception, InternalTransmittable):
     def __init__(self, msg=""):
         Exception.__init__(self, msg)
         body = {'msg': msg}
-        MsgObj.__init__(self, body)
+        InternalTransmittable.__init__(self, body)
 
-    @staticmethod
-    def deserialize(data):
-        return TransmittableException(data['msg'])
+    @classmethod
+    def deserialize(cls, data):
+        return cls(data['msg'])
 
 
 class TransacException(TransmittableException):
-
-    @staticmethod
-    def deserialize(data):
-        return TransacException(data['msg'])
+    @classmethod
+    def deserialize(cls, data):
+        return cls(data['msg'])
 
 
 class RaftLogABC(metaclass=abc.ABCMeta):
@@ -100,3 +122,49 @@ class RaftLogABC(metaclass=abc.ABCMeta):
     @abc.abstractproperty
     def ignore_exc(self):
         raise NotImplementedError
+
+
+class QuruJSONEncoder(json.JSONEncoder):
+    '''Encoding class to serialize Python object
+    into dict.
+    '''
+    def default(self, obj):
+        '''
+        Args:
+            obj (any): Any objects that exposes a serialize
+            method to serialize itself into json format.
+        '''
+        if isinstance(obj, set):
+            new_obj = {
+                'MARKER::CLASS': "set",
+                'MARKER::DATA': list(obj)
+            }
+            return new_obj
+        if isinstance(obj, Transmittable):
+            new_obj = {
+                'MARKER::CLASS': obj.__class__.__name__,
+                'MARKER::DATA': obj.serialize()
+            }
+            return new_obj
+        try:
+            return json.JSONEncoder.default(self, obj)
+        except Exception as e:
+            print(e)
+            pass
+
+
+def quru_load_hook(item):
+    '''Used by packet when loading json to recover
+    the serialized Python object.
+    Args:
+        item (dict): the dict encoding a Python object.
+    '''
+    if "MARKER::CLASS" in item:
+        if item["MARKER::CLASS"] == "set":
+            return set(item["MARKER::DATA"])
+        obj = _type_pool[item['MARKER::CLASS']].deserialize(item['MARKER::DATA'])
+        if item["MARKER::CLASS"] == "RedisObj":
+            return json.loads(obj, object_hook=quru_load_hook)
+        else:
+            return obj
+    return item

@@ -9,6 +9,7 @@ Quru (Chinese 瞿如, pronounce keeru) is a bird-like beast with human face and 
 
 # How to run demo
 You will need to setup a rabbitmq and redis instances to get Quru running. A docker compose file for quick setup is provided in `demo` folder.
+0. Git clone this repo and add the current path to your `PYTHONPATH` environment variables.
 1. In your terminal, `cd` to the demo folder.
 2. Run `make run-infra` to get rabbitmq and redis running.
 3. Run `python worker.py`. This instance starts the worker that handles tasks.
